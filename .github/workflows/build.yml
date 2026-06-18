@@ -17,25 +17,25 @@ jobs:
     strategy:
       matrix:
         include:
-          # Linux AMD64 (ubuntu-26.04 logical mapping)
           - os: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             name: linux-amd64
+            bin: pow
 
-          # Linux ARM64 (ubuntu-26.04-arm logical mapping)
           - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             name: linux-arm64
+            bin: pow
 
-          # macOS Intel (macos-15-intel logical mapping)
           - os: macos-15-intel
             target: x86_64-apple-darwin
             name: macos-amd64
+            bin: pow
 
-          # macOS ARM64 (macos-15)
           - os: macos-15
             target: aarch64-apple-darwin
             name: macos-arm64
+            bin: pow
 
     runs-on: ${{ matrix.os }}
 
@@ -48,15 +48,22 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build
+      - name: Build one binary
         run: |
-          cargo build --release --target ${{ matrix.target }}
+          cargo build --release --target ${{ matrix.target }} --bin ${{ matrix.bin }}
 
-      - name: Upload artifact
+      - name: Package one file
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "target/${{ matrix.target }}/release/${{ matrix.bin }}" "out/${{ matrix.bin }}-${{ matrix.name }}"
+          chmod +x "out/${{ matrix.bin }}-${{ matrix.name }}"
+
+      - name: Upload one artifact
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.name }}
-          path: target/${{ matrix.target }}/release/*
+          path: out/${{ matrix.bin }}-${{ matrix.name }}
 
   release:
     if: github.event_name == 'workflow_dispatch'
@@ -68,12 +75,17 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: dist
+          merge-multiple: true
+
+      - name: List release files
+        run: |
+          find dist -type f -maxdepth 1 -print
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.event.inputs.version }}
           name: ${{ github.event.inputs.version }}
-          files: dist/**/*
+          files: dist/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
