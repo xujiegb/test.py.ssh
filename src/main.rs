@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 const COMMIT_HEX: &str = "90243a7416f52151a8c6cecf633500dceb366895";
-const FIXED_SUFFIX: [u8; 4] = [0xca, 0x01, 0x01, 0x50];
+const FIXED_SUFFIX: [u8; 4] = [0xd3, 0x8c, 0x59, 0xb6];
 
 fn hex_to_bytes(hex: &str) -> Vec<u8> {
     (0..hex.len())
@@ -37,7 +37,7 @@ fn worker(prefix_bytes: [u8; 4], found: Arc<AtomicBool>) {
     // 初始化首尾固定的 Hex 字符
     // 第一段: commit 后 8 位
     hex::encode_to_slice(&uuid[0..4], &mut out[0..8]).unwrap();
-    // 末 8 位: 固定 ca010150
+    // 末 8 位: 固定 d38c59b6
     hex::encode_to_slice(&uuid[12..16], &mut out[28..36]).unwrap();
 
     while !found.load(Ordering::Relaxed) {
@@ -79,7 +79,7 @@ fn main() {
 
     let cores = num_cpus::get();
     println!("[*] Target prefix: {}", prefix);
-    println!("[*] Target suffix: ca010150");
+    println!("[*] Target suffix: d38c59b6");
     println!("[*] Required PoW : 33 bits leading zero in SHA512");
     println!("[*] Using {} cores for mining...", cores);
 
