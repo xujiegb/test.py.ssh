@@ -1,11 +1,13 @@
-name: build-release
+name: build
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       version:
         description: "Release version (e.g. v1.0.0)"
         required: true
+        type: string
 
 jobs:
   build:
@@ -39,7 +41,7 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross tools (ARM Linux)
+      - name: Install Linux cross tools (ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: |
           sudo apt-get update
@@ -49,19 +51,14 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.target }}
 
-      - name: Rename binary
-        run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/* dist/ || true
-          chmod +x dist/* || true
-
-      - name: Upload artifact (temporary)
+      - name: Upload artifact (temp only)
         uses: actions/upload-artifact@v4
         with:
-          name: pow-${{ matrix.name }}
-          path: dist/*
+          name: ${{ matrix.name }}
+          path: target/${{ matrix.target }}/release/*
 
   release:
+    if: github.event_name == 'workflow_dispatch'
     needs: build
     runs-on: ubuntu-latest
 
@@ -69,13 +66,13 @@ jobs:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
+          path: dist
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ inputs.version }}
-          name: ${{ inputs.version }}
-          files: artifacts/**/*
+          tag_name: ${{ github.event.inputs.version }}
+          name: ${{ github.event.inputs.version }}
+          files: dist/**/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
