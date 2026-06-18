@@ -1,0 +1,9 @@
+[package]
+name = "pow_bruteforce"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rayon = "1.10"
+sha2 = "0.10"
+rand = "0.8"
