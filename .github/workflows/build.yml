@@ -71,6 +71,8 @@ jobs:
             name: linux-riscv64
           - target: powerpc64le-unknown-linux-gnu
             name: linux-ppc64le
+          - target: i686-unknown-linux-gnu
+            name: linux-i386
     steps:
       - uses: actions/checkout@v7
 
@@ -93,6 +95,72 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: out/*
+          if-no-files-found: error
+
+  build-linux-musl:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux/amd64
+            name: linux-amd64-musl
+          - os: ubuntu-24.04
+            platform: linux/386
+            name: linux-i386-musl
+          - os: ubuntu-24.04-arm
+            platform: linux/arm64
+            name: linux-arm64-musl
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build in Alpine 3.22
+        run: |
+          docker run --rm \
+            --platform "${{ matrix.platform }}" \
+            -v "$GITHUB_WORKSPACE:/work" \
+            -w /work \
+            -e RELEASE_NAME="${{ matrix.name }}" \
+            alpine:3.22 sh -ec '
+              apk add --no-cache build-base cargo rust
+              rustc -vV
+              cargo build --release --bin pow
+              mkdir -p out
+              cp target/release/pow "out/pow-$RELEASE_NAME"
+              chmod +x "out/pow-$RELEASE_NAME"
+            '
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: out/pow-${{ matrix.name }}
+          if-no-files-found: error
+
+  build-linux-riscv64-musl:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: riscv64gc-unknown-linux-musl
+
+      - name: Install cross
+        run: cargo install cross --locked
+
+      - name: Cross compile Linux RISC-V64 musl
+        run: cross build --release --target riscv64gc-unknown-linux-musl --bin pow
+
+      - name: Package
+        run: |
+          mkdir -p out
+          cp target/riscv64gc-unknown-linux-musl/release/pow out/pow-linux-riscv64-musl
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-riscv64-musl
+          path: out/pow-linux-riscv64-musl
           if-no-files-found: error
 
   build-windows-arm64:
@@ -134,8 +202,6 @@ jobs:
         include:
           - arch: x86_64
             name: freebsd-amd64
-          - arch: aarch64
-            name: freebsd-arm64
     steps:
       - uses: actions/checkout@v7
 
@@ -157,6 +223,115 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: out/pow-${{ matrix.name }}
+          if-no-files-found: error
+
+  build-freebsd-i386:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust for FreeBSD i386
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: i686-unknown-freebsd
+
+      - name: Install LLVM linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+
+      - name: Download FreeBSD 15.1 i386 compatibility sysroot
+        run: |
+          curl --fail --location --retry 3 --output base.txz \
+            https://download.freebsd.org/releases/amd64/amd64/15.1-RELEASE/base.txz
+          curl --fail --location --retry 3 --output lib32.txz \
+            https://download.freebsd.org/releases/amd64/amd64/15.1-RELEASE/lib32.txz
+          mkdir -p freebsd-sysroot
+          tar -xJf base.txz -C freebsd-sysroot
+          tar -xJf lib32.txz -C freebsd-sysroot
+          rm base.txz lib32.txz
+
+      - name: Configure FreeBSD i386 cross-linker
+        run: |
+          cat > freebsd-i386-linker <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          exec clang --target=i686-unknown-freebsd15.1 \
+            --sysroot="$GITHUB_WORKSPACE/freebsd-sysroot" \
+            -B"$GITHUB_WORKSPACE/freebsd-sysroot/usr/lib32" \
+            -L"$GITHUB_WORKSPACE/freebsd-sysroot/usr/lib32" \
+            -fuse-ld=lld "$@"
+          EOF
+          chmod +x freebsd-i386-linker
+          echo "CARGO_TARGET_I686_UNKNOWN_FREEBSD_LINKER=$GITHUB_WORKSPACE/freebsd-i386-linker" >> "$GITHUB_ENV"
+
+      - name: Build for FreeBSD i386
+        run: cargo build --release --target i686-unknown-freebsd --bin pow
+
+      - name: Verify architecture and package
+        run: |
+          binary="target/i686-unknown-freebsd/release/pow"
+          readelf -h "$binary" | grep -E 'Class:|Machine:'
+          readelf -h "$binary" | grep -q '80386'
+          mkdir -p out
+          cp "$binary" out/pow-freebsd-i386
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: freebsd-i386
+          path: out/pow-freebsd-i386
+          if-no-files-found: error
+
+  build-freebsd-arm64:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install Rust for FreeBSD ARM64
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-freebsd
+
+      - name: Install LLVM linker
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld
+
+      - name: Download FreeBSD 15.1 ARM64 sysroot
+        run: |
+          curl --fail --location --retry 3 --output base.txz \
+            https://download.freebsd.org/releases/arm64/aarch64/15.1-RELEASE/base.txz
+          mkdir -p freebsd-sysroot
+          tar -xJf base.txz -C freebsd-sysroot
+          rm base.txz
+
+      - name: Configure FreeBSD ARM64 cross-linker
+        run: |
+          cat > freebsd-arm64-linker <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          exec clang --target=aarch64-unknown-freebsd15.1 \
+            --sysroot="$GITHUB_WORKSPACE/freebsd-sysroot" \
+            -fuse-ld=lld "$@"
+          EOF
+          chmod +x freebsd-arm64-linker
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_FREEBSD_LINKER=$GITHUB_WORKSPACE/freebsd-arm64-linker" >> "$GITHUB_ENV"
+
+      - name: Build for FreeBSD ARM64
+        run: cargo build --release --target aarch64-unknown-freebsd --bin pow
+
+      - name: Verify architecture and package
+        run: |
+          binary="target/aarch64-unknown-freebsd/release/pow"
+          readelf -h "$binary" | grep -E 'Class:|Machine:'
+          readelf -h "$binary" | grep -q 'AArch64'
+          mkdir -p out
+          cp "$binary" out/pow-freebsd-arm64
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: freebsd-arm64
+          path: out/pow-freebsd-arm64
           if-no-files-found: error
 
   build-freebsd-riscv64:
@@ -219,8 +394,12 @@ jobs:
     needs:
       - build
       - build-linux-cross
+      - build-linux-musl
+      - build-linux-riscv64-musl
       - build-windows-arm64
       - build-freebsd
+      - build-freebsd-i386
+      - build-freebsd-arm64
       - build-freebsd-riscv64
     runs-on: ubuntu-24.04
     permissions:
