@@ -12,7 +12,7 @@ num_cpus = "1.16"
 
 [profile.release]
 opt-level = 3
-lto = "thin"
+lto = "fat"
 codegen-units = 4
 panic = "abort"
 strip = "debuginfo"
